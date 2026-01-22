@@ -307,6 +307,14 @@ export interface AppConfig {
 	sshConfigs?: SshConfig[];
 	cloudflareConfigs?: CloudflareConfig[];
 	disableControlPanel?: boolean; // Hide CLIProxyAPI's web management UI
+	letta?: LettaConfig; // Letta memory injection configuration
+}
+
+// Letta memory injection configuration
+export interface LettaConfig {
+	enabled: boolean;
+	serverUrl: string;
+	agentId: string;
 }
 
 export async function getConfig(): Promise<AppConfig> {

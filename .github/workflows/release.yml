@@ -97,7 +97,8 @@ jobs:
 
           echo "Downloading CLIProxyAPI for ${{ matrix.target }}..."
           cd /tmp
-          gh release download --repo router-for-me/CLIProxyAPI --pattern "$ASSET_PATTERN" --clobber
+          # Download from your fork with Letta integration
+          gh release download --repo phquand2000/CLIProxyAPI --pattern "$ASSET_PATTERN" --clobber
 
           ARCHIVE=$(ls $ASSET_PATTERN 2>/dev/null | head -1)
           echo "Extracting $ARCHIVE..."
@@ -174,27 +175,3 @@ jobs:
             Write-Warning "Executable not found at $exePath"
             Get-ChildItem -Recurse -Filter "*.exe" src-tauri/target | Select-Object FullName
           }
-
-  notify:
-    name: Discord Notification
-    needs: release
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Discord notification (release)
-        if: ${{ needs.release.result == 'success' }}
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          curl -H "Content-Type: application/json" \
-            -d "{\"embeds\": [{\"title\": \"ProxyPal ${{ github.ref_name }} Released!\", \"description\": \"New version available for download.\n\n[Download on GitHub](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }})\", \"color\": 5793266}]}" \
-            $DISCORD_WEBHOOK
-
-      - name: Discord notification (failure)
-        if: ${{ needs.release.result == 'failure' }}
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          curl -H "Content-Type: application/json" \
-            -d "{\"embeds\": [{\"title\": \"ProxyPal Release Failed\", \"description\": \"**Tag:** \`${{ github.ref_name }}\`\n\n[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\", \"color\": 15158332}]}" \
-            $DISCORD_WEBHOOK

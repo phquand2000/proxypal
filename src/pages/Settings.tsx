@@ -16,7 +16,8 @@ type SettingsTab =
 	| "models"
 	| "advanced"
 	| "ssh"
-	| "cloudflare";
+	| "cloudflare"
+	| "letta";
 
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
@@ -1482,6 +1483,7 @@ export function SettingsPage() {
 								{ id: "models" as SettingsTab, label: "Models" },
 								{ id: "ssh" as SettingsTab, label: "SSH API" },
 								{ id: "cloudflare" as SettingsTab, label: "Cloudflare" },
+								{ id: "letta" as SettingsTab, label: "Letta Memory" },
 								{ id: "advanced" as SettingsTab, label: "Advanced" },
 							]}
 						>
@@ -3306,6 +3308,79 @@ export function SettingsPage() {
 								After changing settings, restart the proxy for changes to take
 								effect.
 							</p>
+						</div>
+					</div>
+
+					{/* Letta Memory Settings */}
+					<div
+						class="space-y-4"
+						classList={{ hidden: activeTab() !== "letta" }}
+					>
+						<h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+							Letta Memory Injection
+						</h2>
+
+						<div class="space-y-4 p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+							<p class="text-sm text-gray-600 dark:text-gray-400">
+								Automatically inject context from your Letta agent's memory into every LLM request.
+								This enables persistent memory across CLI tools like Amp and Claude Code.
+							</p>
+
+							<Switch
+								label="Enable Letta Memory"
+								description="Inject agent memory into system prompts"
+								checked={config().letta?.enabled ?? false}
+								onChange={(checked) => {
+									const currentLetta = config().letta || { enabled: false, serverUrl: "http://localhost:8283", agentId: "" };
+									handleConfigChange("letta", { ...currentLetta, enabled: checked });
+								}}
+							/>
+
+							<div class="border-t border-gray-200 dark:border-gray-700" />
+
+							<div class="space-y-2">
+								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+									Letta Server URL
+								</label>
+								<input
+									type="text"
+									placeholder="http://localhost:8283"
+									value={config().letta?.serverUrl ?? "http://localhost:8283"}
+									onInput={(e) => {
+										const currentLetta = config().letta || { enabled: false, serverUrl: "http://localhost:8283", agentId: "" };
+										handleConfigChange("letta", { ...currentLetta, serverUrl: e.currentTarget.value });
+									}}
+									class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								/>
+							</div>
+
+							<div class="space-y-2">
+								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+									Agent ID
+								</label>
+								<input
+									type="text"
+									placeholder="agent-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+									value={config().letta?.agentId ?? ""}
+									onInput={(e) => {
+										const currentLetta = config().letta || { enabled: false, serverUrl: "http://localhost:8283", agentId: "" };
+										handleConfigChange("letta", { ...currentLetta, agentId: e.currentTarget.value });
+									}}
+									class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								/>
+								<p class="text-xs text-gray-500 dark:text-gray-400">
+									Get your agent ID from Letta Desktop or via the API
+								</p>
+							</div>
+						</div>
+
+						<div class="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+							<h3 class="font-medium text-blue-900 dark:text-blue-100 mb-2">How it works</h3>
+							<ul class="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
+								<li>Before each request: Agent memory is fetched and injected into the system prompt</li>
+								<li>After each response: Conversation is captured and agent memory is updated</li>
+								<li>Fail-safe: If Letta is unavailable, requests continue without memory injection</li>
+							</ul>
 						</div>
 					</div>
 

@@ -82,6 +82,24 @@ pub struct AppConfig {
     pub cloudflare_configs: Vec<CloudflareConfig>,
     #[serde(default = "default_disable_control_panel")]
     pub disable_control_panel: bool,
+    #[serde(default)]
+    pub letta: LettaConfig,
+}
+
+/// Letta memory injection configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LettaConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_letta_server_url")]
+    pub server_url: String,
+    #[serde(default)]
+    pub agent_id: String,
+}
+
+fn default_letta_server_url() -> String {
+    "http://localhost:8283".to_string()
 }
 
 fn default_disable_control_panel() -> bool {
@@ -161,6 +179,7 @@ impl Default for AppConfig {
             ssh_configs: Vec::new(),
             cloudflare_configs: Vec::new(),
             disable_control_panel: true,
+            letta: LettaConfig::default(),
         }
     }
 }

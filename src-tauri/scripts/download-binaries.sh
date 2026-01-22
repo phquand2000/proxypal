@@ -7,8 +7,8 @@ BINARY_NAME="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARIES_DIR="$SCRIPT_DIR/../binaries"
 
-# Use patched fork until upstream merges fixes (#730, #731, #732)
-CLIPROXYAPI_REPO="${CLIPROXYAPI_REPO:-router-for-me/CLIProxyAPI}"
+# Use your fork with Letta integration
+CLIPROXYAPI_REPO="${CLIPROXYAPI_REPO:-phquand2000/CLIProxyAPI}"
 
 # Get latest version from GitHub API
 VERSION=$(curl -s "https://api.github.com/repos/${CLIPROXYAPI_REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')

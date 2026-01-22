@@ -1047,12 +1047,22 @@ ws-auth: {}
 
     // Spawn the sidecar process with WRITABLE_PATH set to app config dir
     // This prevents CLIProxyAPI from writing logs to src-tauri/logs/ which triggers hot reload
-    let sidecar = app
+    let mut sidecar = app
         .shell()
         .sidecar("cliproxyapi")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
-        .env("WRITABLE_PATH", config_dir.to_str().unwrap())
-        .args(["--config", proxy_config_path.to_str().unwrap()]);
+        .env("WRITABLE_PATH", config_dir.to_str().unwrap());
+    
+    // Add Letta environment variables if enabled
+    if config.letta.enabled {
+        sidecar = sidecar
+            .env("LETTA_ENABLED", "true")
+            .env("LETTA_SERVER_URL", &config.letta.server_url)
+            .env("LETTA_AGENT_ID", &config.letta.agent_id);
+        println!("[ProxyPal] Letta memory injection enabled: agent={}", config.letta.agent_id);
+    }
+    
+    let sidecar = sidecar.args(["--config", proxy_config_path.to_str().unwrap()]);
 
     let (mut rx, child) = sidecar.spawn().map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 
