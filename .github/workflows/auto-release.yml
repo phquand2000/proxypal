@@ -4,11 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/**'
-      - 'src-tauri/src/**'
-      - 'src-tauri/Cargo.toml'
-      - 'package.json'
-      - '.github/workflows/**'
+      - 'src-tauri/tauri.conf.json'  # Version change
+      - 'package.json'               # Version change
   workflow_dispatch:  # Manual trigger
 
 jobs:
