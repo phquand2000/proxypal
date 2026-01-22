@@ -1,15 +1,15 @@
 name: Auto Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'src-tauri/tauri.conf.json'  # Version change
-      - 'package.json'               # Version change
   workflow_dispatch:  # Manual trigger
 
 jobs:
   create-release:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
