@@ -60,10 +60,10 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             artifact_path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-          - platform: Windows
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          # - platform: Windows
+          #   os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   artifact_path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
 
     runs-on: ${{ matrix.os }}
     steps:
