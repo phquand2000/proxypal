@@ -19,10 +19,6 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
 
@@ -44,12 +40,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
-
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -70,16 +60,6 @@ jobs:
             aarch64-apple-darwin)
               ASSET_PATTERN="*darwin_arm64.tar.gz"
               BINARY="cliproxyapi-aarch64-apple-darwin"
-              ARCHIVE_TYPE="tar"
-              ;;
-            x86_64-apple-darwin)
-              ASSET_PATTERN="*darwin_amd64.tar.gz"
-              BINARY="cliproxyapi-x86_64-apple-darwin"
-              ARCHIVE_TYPE="tar"
-              ;;
-            x86_64-unknown-linux-gnu)
-              ASSET_PATTERN="*linux_amd64.tar.gz"
-              BINARY="cliproxyapi-x86_64-unknown-linux-gnu"
               ARCHIVE_TYPE="tar"
               ;;
             x86_64-pc-windows-msvc)
@@ -146,10 +126,8 @@ jobs:
             | Platform | Download |
             |----------|----------|
             | macOS (Apple Silicon) | `.dmg` (aarch64) |
-            | macOS (Intel) | `.dmg` (x64) |
             | Windows | `.exe` installer |
             | Windows (Portable) | `.zip` (no install required) |
-            | Linux | `.deb` package |
           releaseDraft: false
           prerelease: false
           updaterJsonPreferNsis: true
