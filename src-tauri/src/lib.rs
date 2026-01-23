@@ -21,7 +21,7 @@ use crate::types::{
 };
 use crate::ssh_manager::SshManager;
 use crate::cloudflare_manager::CloudflareManager;
-use crate::utils::{estimate_request_cost, detect_provider_from_model, detect_provider_from_path, extract_model_from_path};
+use crate::utils::{estimate_request_cost, detect_provider_from_model, detect_provider_from_path, extract_model_from_path, detect_provider_from_auth_file};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1043,14 +1043,22 @@ ws-auth: {}
         }
     }
     
-    std::fs::write(&proxy_config_path, proxy_config).map_err(|e| e.to_string())?;
+    std::fs::write(&proxy_config_path, &proxy_config).map_err(|e| e.to_string())?;
+    println!("[ProxyPal] Config written to: {:?}", proxy_config_path);
 
     // Spawn the sidecar process with WRITABLE_PATH set to app config dir
     // This prevents CLIProxyAPI from writing logs to src-tauri/logs/ which triggers hot reload
+    println!("[ProxyPal] Preparing to spawn cliproxyapi sidecar...");
+    println!("[ProxyPal] Config dir: {:?}", config_dir);
+    println!("[ProxyPal] Port: {}", config.port);
+    
     let mut sidecar = app
         .shell()
         .sidecar("cliproxyapi")
-        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+        .map_err(|e| {
+            eprintln!("[ProxyPal] ERROR: Failed to create sidecar command: {}", e);
+            format!("Failed to create sidecar command: {}", e)
+        })?
         .env("WRITABLE_PATH", config_dir.to_str().unwrap());
     
     // Add Letta environment variables if enabled
@@ -1063,8 +1071,14 @@ ws-auth: {}
     }
     
     let sidecar = sidecar.args(["--config", proxy_config_path.to_str().unwrap()]);
+    println!("[ProxyPal] Spawning sidecar with config: {:?}", proxy_config_path);
 
-    let (mut rx, child) = sidecar.spawn().map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
+    let (mut rx, child) = sidecar.spawn().map_err(|e| {
+        eprintln!("[ProxyPal] ERROR: Failed to spawn sidecar: {}", e);
+        format!("Failed to spawn sidecar: {}", e)
+    })?;
+    
+    println!("[ProxyPal] Sidecar spawned successfully, PID: {:?}", child.pid());
 
     // Store the child process
     {
@@ -1105,10 +1119,49 @@ ws-auth: {}
     // Give it a moment to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
-    // Sync usage statistics setting via Management API (in case it differs from config file)
+    // Verify the proxy actually started by checking if the port is responding
+    // Retry a few times since the proxy may take a moment to become ready
     let port = config.port;
-    let enable_url = format!("http://127.0.0.1:{}/v0/management/usage-statistics-enabled", port);
     let client = reqwest::Client::new();
+    let health_url = format!("http://127.0.0.1:{}/v1/models", port);
+    let mut proxy_started = false;
+    
+    for attempt in 1..=5 {
+        println!("[ProxyPal] Checking proxy health, attempt {}/5", attempt);
+        match client
+            .get(&health_url)
+            .header("Authorization", format!("Bearer {}", config.proxy_api_key))
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await 
+        {
+            Ok(response) if response.status().is_success() || response.status().as_u16() == 401 => {
+                // 200 OK or 401 Unauthorized both indicate the server is running
+                println!("[ProxyPal] Proxy is responding (status: {})", response.status());
+                proxy_started = true;
+                break;
+            }
+            Ok(response) => {
+                println!("[ProxyPal] Proxy returned unexpected status: {}", response.status());
+            }
+            Err(e) => {
+                println!("[ProxyPal] Proxy not ready yet: {}", e);
+            }
+        }
+        
+        if attempt < 5 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+    
+    if !proxy_started {
+        // The spawn succeeded but proxy isn't responding - this might happen on GUI launch
+        eprintln!("[ProxyPal] Warning: Proxy process spawned but not responding on port {}. Check logs.", port);
+        // Don't fail here - the process might still be starting up, let the frontend retry
+    }
+    
+    // Sync usage statistics setting via Management API (in case it differs from config file)
+    let enable_url = format!("http://127.0.0.1:{}/v0/management/usage-statistics-enabled", port);
     let _ = client
         .put(&enable_url)
         .header("X-Management-Key", &get_management_key())
@@ -6114,7 +6167,8 @@ async fn get_auth_files(state: State<'_, AppState>) -> Result<Vec<AuthFile>, Str
         }
     }
     
-    // 2. Scan for disabled files (.json.disabled) in auth directory
+    // 2. Scan auth directory directly for both active (.json) and disabled (.json.disabled) files
+    // This is the authoritative source since the Management API may return empty
     let auth_dir = dirs::home_dir()
         .ok_or("Could not find home directory")?
         .join(".cli-proxy-api");
@@ -6124,25 +6178,41 @@ async fn get_auth_files(state: State<'_, AppState>) -> Result<Vec<AuthFile>, Str
             for entry in entries.flatten() {
                 let path = entry.path();
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.ends_with(".json.disabled") {
-                        // This is a disabled auth file
+                    let is_disabled = name.ends_with(".json.disabled");
+                    let is_active = name.ends_with(".json") && !is_disabled;
+                    
+                    if is_active || is_disabled {
+                        // Check if this file is already in the list (from Management API)
+                        let base_name = if is_disabled {
+                            name.strip_suffix(".json.disabled").unwrap_or(name)
+                        } else {
+                            name.strip_suffix(".json").unwrap_or(name)
+                        };
+                        
+                        // Skip if we already have this file from the API
+                        if files.iter().any(|f| f.id == base_name || f.name == base_name) {
+                            continue;
+                        }
+                        
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                                // Try to extract provider/email for metadata
-                                let provider = json.get("provider")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown")
-                                    .to_string();
-                                    
-                                let dummy_id = name.strip_suffix(".json.disabled").unwrap_or(name).to_string();
+                                // Detect provider from filename or content
+                                let provider = detect_provider_from_auth_file(name, &json);
                                 
-                                // Create AuthFile entry for this disabled file
-                                let disabled_file = AuthFile {
-                                    id: dummy_id.clone(),
-                                    name: dummy_id,
+                                // Try to extract email from content
+                                let email = json.get("email")
+                                    .or_else(|| json.get("account"))
+                                    .or_else(|| json.get("user"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                
+                                // Create AuthFile entry
+                                let auth_file = AuthFile {
+                                    id: base_name.to_string(),
+                                    name: base_name.to_string(),
                                     provider,
-                                    status: "disabled".to_string(),
-                                    disabled: true,
+                                    status: if is_disabled { "disabled".to_string() } else { "active".to_string() },
+                                    disabled: is_disabled,
                                     unavailable: false,
                                     runtime_only: false,
                                     source: Some("file".to_string()),
@@ -6152,8 +6222,11 @@ async fn get_auth_files(state: State<'_, AppState>) -> Result<Vec<AuthFile>, Str
                                         .and_then(|m| m.modified().ok())
                                         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
                                         .unwrap_or_default()),
-                                    email: None, // Could parse from content if standard format
-                                    account_type: None,
+                                    email,
+                                    account_type: json.get("accountType")
+                                        .or_else(|| json.get("account_type"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
                                     account: None,
                                     created_at: None,
                                     updated_at: None,
@@ -6164,7 +6237,7 @@ async fn get_auth_files(state: State<'_, AppState>) -> Result<Vec<AuthFile>, Str
                                     status_message: None,
                                 };
                                 
-                                files.push(disabled_file);
+                                files.push(auth_file);
                             }
                         }
                     }

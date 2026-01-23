@@ -112,3 +112,73 @@ pub fn extract_model_from_path(path: &str) -> Option<String> {
     }
     None
 }
+
+/// Detect provider from auth file name and content
+/// e.g., "claude-user@example.com.json" -> "claude"
+/// e.g., "antigravity-user.json" -> "antigravity"
+pub fn detect_provider_from_auth_file(filename: &str, json: &serde_json::Value) -> String {
+    // First try to get provider from JSON content
+    if let Some(provider) = json.get("provider")
+        .or_else(|| json.get("api"))
+        .or_else(|| json.get("type"))
+        .and_then(|v| v.as_str()) 
+    {
+        let normalized = provider.to_lowercase();
+        if normalized.contains("claude") || normalized.contains("anthropic") {
+            return "claude".to_string();
+        }
+        if normalized.contains("gemini") || normalized.contains("google") {
+            return "gemini".to_string();
+        }
+        if normalized.contains("antigravity") {
+            return "antigravity".to_string();
+        }
+        if normalized.contains("codex") || normalized.contains("openai") {
+            return "codex".to_string();
+        }
+        if normalized.contains("qwen") {
+            return "qwen".to_string();
+        }
+        if normalized.contains("iflow") {
+            return "iflow".to_string();
+        }
+        if normalized.contains("vertex") {
+            return "vertex".to_string();
+        }
+        return provider.to_string();
+    }
+    
+    // Fallback: detect from filename prefix
+    let lower = filename.to_lowercase();
+    if lower.starts_with("claude-") || lower.starts_with("anthropic-") {
+        return "claude".to_string();
+    }
+    if lower.starts_with("gemini-") || lower.starts_with("google-") || lower.starts_with("gemini_cli-") {
+        return "gemini".to_string();
+    }
+    if lower.starts_with("antigravity-") {
+        return "antigravity".to_string();
+    }
+    if lower.starts_with("codex-") || lower.starts_with("openai-") {
+        return "codex".to_string();
+    }
+    if lower.starts_with("qwen-") {
+        return "qwen".to_string();
+    }
+    if lower.starts_with("iflow-") {
+        return "iflow".to_string();
+    }
+    if lower.starts_with("vertex-") {
+        return "vertex".to_string();
+    }
+    
+    // Final fallback: check for characteristic fields in JSON
+    if json.get("sessionKey").is_some() || json.get("accessToken").is_some() {
+        // Most OAuth providers have these
+        if json.get("account").is_some() {
+            return "unknown-oauth".to_string();
+        }
+    }
+    
+    "unknown".to_string()
+}

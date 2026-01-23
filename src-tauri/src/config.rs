@@ -87,7 +87,7 @@ pub struct AppConfig {
 }
 
 /// Letta memory injection configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LettaConfig {
     #[serde(default)]
@@ -96,6 +96,16 @@ pub struct LettaConfig {
     pub server_url: String,
     #[serde(default)]
     pub agent_id: String,
+}
+
+impl Default for LettaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_url: default_letta_server_url(),
+            agent_id: String::new(),
+        }
+    }
 }
 
 fn default_letta_server_url() -> String {
