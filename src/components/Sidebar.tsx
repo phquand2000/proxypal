@@ -1,5 +1,16 @@
-import { type Component, createSignal, For, onMount, Show } from "solid-js";
-import { checkForUpdates, downloadAndInstallUpdate } from "../lib/tauri";
+import {
+	type Component,
+	createEffect,
+	createSignal,
+	For,
+	onMount,
+	Show,
+} from "solid-js";
+import {
+	checkForUpdates,
+	downloadAndInstallUpdate,
+	saveConfig,
+} from "../lib/tauri";
 import { appStore } from "../stores/app";
 import { themeStore } from "../stores/theme";
 
@@ -39,7 +50,9 @@ const AnalyticsIcon: Component<{ class?: string }> = (props) => (
 		stroke="currentColor"
 		stroke-width="1.5"
 	>
-		<path d="M18 20V10M12 20V4M6 20v-6" stroke-linecap="round" />
+		<path d="M18 20V10" />
+		<path d="M12 20V4" />
+		<path d="M6 20v-6" />
 	</svg>
 );
 
@@ -134,7 +147,22 @@ export const Sidebar: Component = () => {
 		sidebarExpanded,
 		setSidebarExpanded,
 	} = appStore;
-	const [isPinned, setIsPinned] = createSignal(false);
+	const [isPinned, setIsPinned] = createSignal(
+		appStore.config().sidebarPinned || false,
+	);
+
+	// Persist pinned state
+	createEffect(() => {
+		const pinned = isPinned();
+		if (appStore.config().sidebarPinned !== pinned) {
+			appStore.setConfig({
+				...appStore.config(),
+				sidebarPinned: pinned,
+			});
+			saveConfig(appStore.config());
+		}
+	});
+
 	const [updateAvailable, setUpdateAvailable] = createSignal(false);
 	const [updateVersion, setUpdateVersion] = createSignal("");
 	const [isUpdating, setIsUpdating] = createSignal(false);
