@@ -128,7 +128,7 @@ export function AuthFilesPage() {
 				}),
 			);
 
-			await toggleAuthFile(file.id, !file.disabled);
+			await toggleAuthFile(file.name, !file.disabled);
 
 			// Refresh auth status in background to ensure syncing
 			const newAuthStatus = await refreshAuthStatus();
@@ -311,10 +311,11 @@ export function AuthFilesPage() {
 							<div class="flex items-center gap-2 mb-4 flex-wrap">
 								<button
 									onClick={() => setFilter("all")}
-									class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${filter() === "all"
-										? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-										: "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-										}`}
+									class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+										filter() === "all"
+											? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+											: "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+									}`}
 								>
 									All ({files().length})
 								</button>
@@ -322,10 +323,11 @@ export function AuthFilesPage() {
 									{(provider) => (
 										<button
 											onClick={() => setFilter(provider)}
-											class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${filter() === provider
-												? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-												: "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-												}`}
+											class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+												filter() === provider
+													? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+													: "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+											}`}
 										>
 											<img
 												src={
@@ -382,10 +384,11 @@ export function AuthFilesPage() {
 								<For each={filteredFiles()}>
 									{(file) => (
 										<div
-											class={`rounded-xl border p-4 transition-colors ${file.disabled
-												? "bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700 opacity-60"
-												: "bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700"
-												}`}
+											class={`rounded-xl border p-4 transition-colors ${
+												file.disabled
+													? "bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700 opacity-60"
+													: "bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700"
+											}`}
 										>
 											<div class="flex items-start justify-between gap-4">
 												{/* Left: Info */}
@@ -409,9 +412,10 @@ export function AuthFilesPage() {
 																{file.name}
 															</span>
 															<span
-																class={`px-2 py-0.5 rounded text-xs font-medium border ${providerColors[file.provider.toLowerCase()] ||
+																class={`px-2 py-0.5 rounded text-xs font-medium border ${
+																	providerColors[file.provider.toLowerCase()] ||
 																	"bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-600"
-																	}`}
+																}`}
 															>
 																{file.provider}
 															</span>
@@ -511,10 +515,11 @@ export function AuthFilesPage() {
 													</button>
 													<button
 														onClick={() => handleToggle(file)}
-														class={`p-2 rounded-lg transition-colors ${file.disabled
-															? "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-															: "text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-															}`}
+														class={`p-2 rounded-lg transition-colors ${
+															file.disabled
+																? "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+																: "text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+														}`}
 														title={file.disabled ? "Enable" : "Disable"}
 													>
 														<Show when={!file.disabled}>

@@ -6859,58 +6859,35 @@ async fn delete_auth_file(state: State<'_, AppState>, file_id: String) -> Result
     Ok(())
 }
 
-// Toggle auth file enabled/disabled
+// Toggle auth file enabled/disabled via management API (CLIProxyAPI v6.7.18+)
 #[tauri::command]
-async fn toggle_auth_file(_state: State<'_, AppState>, file_id: String, disabled: bool) -> Result<(), String> {
-    let auth_dir = dirs::home_dir()
-        .ok_or("Could not find home directory")?
-        .join(".cli-proxy-api");
-        
-    if !auth_dir.exists() {
-        return Err("Auth directory not found".to_string());
-    }
+async fn toggle_auth_file(state: State<'_, AppState>, file_name: String, disabled: bool) -> Result<(), String> {
+    let port = {
+        let config = state.config.lock().unwrap();
+        config.port
+    };
     
-    // CAUTION: 'file_id' from the API is typically the filename WITHOUT .json extension
-    // But sometimes it might include it depending on how the ID was constructed.
-    // We try to find the source file.
+    // Use the new PATCH endpoint from CLIProxyAPI v6.7.18
+    // Endpoint: PATCH /v0/management/auth-files/status
+    // Body: { "name": "filename.json", "disabled": true/false }
+    let url = get_management_url(port, "auth-files/status");
     
-    let enabled_path = auth_dir.join(format!("{}.json", file_id));
-    let disabled_path = auth_dir.join(format!("{}.json.disabled", file_id));
+    let client = build_management_client();
+    let response = client
+        .patch(&url)
+        .header("X-Management-Key", &get_management_key())
+        .json(&serde_json::json!({
+            "name": file_name,
+            "disabled": disabled
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to toggle auth file: {}", e))?;
     
-    if disabled {
-        // Disable: Rename .json -> .json.disabled
-        if enabled_path.exists() {
-            std::fs::rename(&enabled_path, &disabled_path)
-                .map_err(|e| format!("Failed to disable file: {}", e))?;
-        } else {
-            // Check if ID already had extension?
-            let enabled_path_asis = auth_dir.join(&file_id);
-            let disabled_path_asis = auth_dir.join(format!("{}.disabled", file_id));
-            
-            if enabled_path_asis.exists() {
-                std::fs::rename(&enabled_path_asis, &disabled_path_asis)
-                    .map_err(|e| format!("Failed to disable file: {}", e))?;
-            } else {
-                return Err("File not found to disable".to_string());
-            }
-        }
-    } else {
-        // Enable: Rename .json.disabled -> .json
-        if disabled_path.exists() {
-            std::fs::rename(&disabled_path, &enabled_path)
-                .map_err(|e| format!("Failed to enable file: {}", e))?;
-        } else {
-            // Check alt path
-            let enabled_path_asis = auth_dir.join(&file_id);
-            let disabled_path_asis = auth_dir.join(format!("{}.disabled", file_id));
-            
-            if disabled_path_asis.exists() {
-                std::fs::rename(&disabled_path_asis, &enabled_path_asis)
-                    .map_err(|e| format!("Failed to enable file: {}", e))?;
-            } else {
-                return Err("File not found to enable".to_string());
-            }
-        }
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Failed to toggle auth file: {} - {}", status, error_text));
     }
     
     Ok(())

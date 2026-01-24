@@ -960,10 +960,10 @@ export async function deleteAuthFile(fileId: string): Promise<void> {
 }
 
 export async function toggleAuthFile(
-	fileId: string,
+	fileName: string,
 	disabled: boolean,
 ): Promise<void> {
-	return invoke("toggle_auth_file", { fileId, disabled });
+	return invoke("toggle_auth_file", { fileName, disabled });
 }
 
 export async function downloadAuthFile(
