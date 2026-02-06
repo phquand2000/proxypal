@@ -9,6 +9,7 @@ pub struct ProviderHealth {
     pub qwen: HealthStatus,
     pub iflow: HealthStatus,
     pub vertex: HealthStatus,
+    pub kiro: HealthStatus,
     pub antigravity: HealthStatus,
 }
 

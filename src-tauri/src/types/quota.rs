@@ -96,3 +96,20 @@ pub struct ClaudeQuotaResult {
     pub fetched_at: String,
     pub error: Option<String>,
 }
+
+/// Kiro Usage API Types (from kiro.dev/api/usage)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KiroQuotaResult {
+    pub account_email: String,
+    /// Plan type: "free", "pro", "pro+", "power"
+    pub plan: String,
+    /// Total credits in the pool
+    pub total_credits: f64,
+    /// Credits used so far
+    pub used_credits: f64,
+    /// Percent of credits used
+    pub used_percent: f64,
+    pub fetched_at: String,
+    pub error: Option<String>,
+}

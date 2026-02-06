@@ -78,7 +78,7 @@ if [ -n "$BINARY_NAME" ]; then
 	fi
 
 	# Find the binary (it might be in a nested folder, or named differently)
-	BINARY_FILE=$(find . -maxdepth 2 \( -name "CLIProxyAPI*" -o -name "cli-proxy-api" -o -name "cli-proxy-api.exe" \) -type f \( -perm -u+x -o -name "*.exe" \) | head -n 1)
+	BINARY_FILE=$(find . -maxdepth 2 \( -name "cli-proxy-api-plus*" -o -name "CLIProxyAPI*" -o -name "cli-proxy-api*" \) -type f \( -perm -u+x -o -name "*.exe" \) | head -n 1)
 
 	if [ -n "$BINARY_FILE" ]; then
 		cp "$BINARY_FILE" "$BINARIES_DIR/$BINARY_NAME"
@@ -93,10 +93,10 @@ if [ -n "$BINARY_NAME" ]; then
 else
 	# Download all binaries
 	for target in \
-		"cliproxyapi-aarch64-apple-darwin" \
-		"cliproxyapi-x86_64-apple-darwin" \
-		"cliproxyapi-x86_64-unknown-linux-gnu" \
-		"cliproxyapi-x86_64-pc-windows-msvc.exe"; do
+		"cli-proxy-api-aarch64-apple-darwin" \
+		"cli-proxy-api-x86_64-apple-darwin" \
+		"cli-proxy-api-x86_64-unknown-linux-gnu" \
+		"cli-proxy-api-x86_64-pc-windows-msvc.exe"; do
 		if [ ! -f "$BINARIES_DIR/$target" ]; then
 			"$0" "$target" || echo "Warning: Failed to download $target"
 		fi

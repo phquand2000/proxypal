@@ -10,7 +10,7 @@ if (-not (Test-Path $BinariesDir)) {
     New-Item -ItemType Directory -Force -Path $BinariesDir | Out-Null
 }
 
-$Repo = "router-for-me/CLIProxyAPI"
+$Repo = "phquand2000/CLIProxyAPI"
 # Fetch latest version (no fallback - must succeed)
 try {
     $LatestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"

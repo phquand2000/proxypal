@@ -33,6 +33,7 @@ export type Provider =
 	| "qwen"
 	| "iflow"
 	| "vertex"
+	| "kiro"
 	| "antigravity";
 
 export async function openOAuth(provider: Provider): Promise<string> {
@@ -84,6 +85,7 @@ export interface AuthStatus {
 	qwen: number;
 	iflow: number;
 	vertex: number;
+	kiro: number;
 	antigravity: number;
 }
 
@@ -295,6 +297,9 @@ export interface AppConfig {
 	launchAtLogin: boolean;
 	debug: boolean;
 	proxyUrl: string;
+	proxyUsername?: string;
+	proxyPassword?: string;
+	useSystemProxy?: boolean;
 	requestRetry: number;
 	quotaSwitchProject: boolean;
 	quotaSwitchPreviewModel: boolean;
@@ -482,6 +487,7 @@ export interface ProviderHealth {
 	qwen: HealthStatus;
 	iflow: HealthStatus;
 	vertex: HealthStatus;
+	kiro: HealthStatus;
 	antigravity: HealthStatus;
 }
 
@@ -685,6 +691,12 @@ export async function testOpenAIProvider(
 	apiKey: string,
 ): Promise<ProviderTestResult> {
 	return invoke("test_openai_provider", { baseUrl, apiKey });
+}
+
+export async function testProviderConnection(
+	modelId: string,
+): Promise<ProviderTestResult> {
+	return invoke("test_provider_connection", { modelId });
 }
 
 // ============================================
@@ -1335,12 +1347,26 @@ export interface ClaudeQuotaResult {
 	error?: string;
 }
 
+export interface KiroQuotaResult {
+	accountEmail: string;
+	plan: string;
+	totalCredits: number;
+	usedCredits: number;
+	usedPercent: number;
+	fetchedAt: string;
+	error?: string;
+}
+
 export async function fetchCopilotQuota(): Promise<CopilotQuotaResult[]> {
 	return invoke("fetch_copilot_quota");
 }
 
 export async function fetchClaudeQuota(): Promise<ClaudeQuotaResult[]> {
 	return invoke("fetch_claude_quota");
+}
+
+export async function fetchKiroQuota(): Promise<KiroQuotaResult[]> {
+	return invoke("fetch_kiro_quota");
 }
 
 // ============================================

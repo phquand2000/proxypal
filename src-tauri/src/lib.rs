@@ -656,10 +656,10 @@ async fn start_proxy(
             .args(["-c", &format!("lsof -ti :{} | xargs kill -9 2>/dev/null", port)])
             .output();
         
-        // Also kill any orphaned cliproxyapi processes by name
-        println!("[ProxyPal] Killing any orphaned cliproxyapi processes");
+        // Also kill any orphaned cli-proxy-api processes by name
+        println!("[ProxyPal] Killing any orphaned cli-proxy-api processes");
         let _ = std::process::Command::new("sh")
-            .args(["-c", "pkill -9 -f cliproxyapi 2>/dev/null"])
+            .args(["-c", "pkill -9 -f 'cli-proxy-api|cliproxyapi' 2>/dev/null"])
             .output();
     }
     #[cfg(windows)]
@@ -673,7 +673,7 @@ async fn start_proxy(
         
         // Also kill by process name on Windows (hidden window)
         let mut cmd2 = std::process::Command::new("cmd");
-        cmd2.args(["/C", "taskkill /F /IM cliproxyapi*.exe 2>nul"]);
+        cmd2.args(["/C", "taskkill /F /IM cli-proxy-api*.exe 2>nul & taskkill /F /IM cliproxyapi*.exe 2>nul"]);
         #[cfg(target_os = "windows")]
         cmd2.creation_flags(CREATE_NO_WINDOW);
         let _ = cmd2.output();
@@ -691,11 +691,26 @@ async fn start_proxy(
     let proxy_config_path = config_dir.join("proxy-config.yaml");
     
     // Build proxy-url line if configured
-    let proxy_url_line = if config.proxy_url.is_empty() {
-        String::new()
+    let mut proxy_url_line = String::new();
+    
+    // If system proxy is enabled, try to detect it
+    let mut effective_proxy_url = if config.use_system_proxy {
+        crate::commands::proxy::get_system_proxy().ok().flatten().unwrap_or_default()
     } else {
-        format!("proxy-url: \"{}\"\n", config.proxy_url)
+        config.proxy_url.clone()
     };
+
+    if !effective_proxy_url.is_empty() {
+        // Handle proxy authentication if provided
+        if !config.proxy_username.is_empty() && !config.proxy_password.is_empty() {
+            if let Ok(mut url) = url::Url::parse(&effective_proxy_url) {
+                let _ = url.set_username(&config.proxy_username);
+                let _ = url.set_password(Some(&config.proxy_password));
+                effective_proxy_url = url.to_string();
+            }
+        }
+        proxy_url_line = format!("proxy-url: \"{}\"\n", effective_proxy_url);
+    }
     
     // Build amp api key line if configured
     let amp_api_key_line = if config.amp_api_key.is_empty() {
@@ -860,7 +875,7 @@ async fn start_proxy(
         let mut section = String::from("# Gemini API keys\ngemini-api-key:\n");
         for key in &config.gemini_api_keys {
             section.push_str(&format!("  - api-key: \"{}\"\n", key.api_key));
-            section.push_str("    signature-cache: true\n");
+            section.push_str("    signature-cache: false\n");
             if let Some(ref base_url) = key.base_url {
                 section.push_str(&format!("    base-url: \"{}\"\n", base_url));
             }
@@ -1074,7 +1089,7 @@ ws-auth: {}
     
     let mut sidecar = app
         .shell()
-        .sidecar("cliproxyapi")
+        .sidecar("cli-proxy-api")
         .map_err(|e| {
             eprintln!("[ProxyPal] ERROR: Failed to create sidecar command: {}", e);
             format!("Failed to create sidecar command: {}", e)
@@ -3138,6 +3153,16 @@ async fn get_oauth_url(state: State<'_, AppState>, provider: String) -> Result<O
         config.port
     };
 
+    // Kiro uses a web UI page directly, not a JSON API endpoint
+    // Return the URL directly without making an HTTP request
+    if provider == "kiro" {
+        let kiro_url = format!("http://127.0.0.1:{}/v0/oauth/kiro", port);
+        return Ok(OAuthUrlResponse {
+            url: kiro_url,
+            state: String::new(),
+        });
+    }
+
     // Get the OAuth URL from CLIProxyAPI's Management API
     // Add is_webui=true to use the embedded callback forwarder
     // Use 127.0.0.1 consistently (not localhost) to avoid access control issues
@@ -3213,6 +3238,15 @@ async fn open_oauth(app: tauri::AppHandle, state: State<'_, AppState>, provider:
         config.port
     };
 
+    // For Kiro, open the Web OAuth UI directly in CLIProxyAPIPlus
+    if provider == "kiro" {
+        let oauth_url = format!("http://127.0.0.1:{}/v0/oauth/kiro", port);
+        app.opener()
+            .open_url(&oauth_url, None::<&str>)
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+        return Ok(String::new()); // No specific state needed for direct Web UI
+    }
+
     // Get the OAuth URL from CLIProxyAPI's Management API
     // Add is_webui=true to use the embedded callback forwarder
     // Use 127.0.0.1 consistently (not localhost) to avoid access control issues
@@ -3224,6 +3258,7 @@ async fn open_oauth(app: tauri::AppHandle, state: State<'_, AppState>, provider:
         "iflow" => format!("http://127.0.0.1:{}/v0/management/iflow-auth-url?is_webui=true", port),
         "antigravity" => format!("http://127.0.0.1:{}/v0/management/antigravity-auth-url?is_webui=true", port),
         "vertex" => return Err("Vertex uses service account import, not OAuth. Use import_vertex_credential instead.".to_string()),
+        // Note: Kiro is handled above with direct Web UI
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -3344,6 +3379,8 @@ async fn refresh_auth_status(app: tauri::AppHandle, state: State<'_, AppState>) 
                     new_auth.iflow += 1;
                 } else if filename.starts_with("vertex-") {
                     new_auth.vertex += 1;
+                } else if filename.starts_with("kiro-") {
+                    new_auth.kiro += 1;
                 } else if filename.starts_with("antigravity-") {
                     new_auth.antigravity += 1;
                 }
@@ -3389,6 +3426,7 @@ async fn complete_oauth(
             "qwen" => auth.qwen += 1,
             "iflow" => auth.iflow += 1,
             "vertex" => auth.vertex += 1,
+            "kiro" => auth.kiro += 1,
             "antigravity" => auth.antigravity += 1,
             _ => return Err(format!("Unknown provider: {}", provider)),
         }
@@ -3431,6 +3469,7 @@ async fn disconnect_provider(
                     "qwen" => filename.starts_with("qwen-"),
                     "iflow" => filename.starts_with("iflow-"),
                     "vertex" => filename.starts_with("vertex-"),
+                    "kiro" => filename.starts_with("kiro-"),
                     "antigravity" => filename.starts_with("antigravity-"),
                     _ => false,
                 };
@@ -3453,6 +3492,7 @@ async fn disconnect_provider(
         "qwen" => auth.qwen = 0,
         "iflow" => auth.iflow = 0,
         "vertex" => auth.vertex = 0,
+        "kiro" => auth.kiro = 0,
         "antigravity" => auth.antigravity = 0,
         _ => return Err(format!("Unknown provider: {}", provider)),
     }
@@ -4093,10 +4133,152 @@ async fn fetch_copilot_quota_with_token(token: &str, login: &str) -> types::Copi
     }
 }
 
+#[tauri::command]
+async fn fetch_kiro_quota() -> Result<Vec<types::quota::KiroQuotaResult>, String> {
+    use std::process::Command;
+    use std::path::PathBuf;
+    use regex::Regex;
+
+    // Find kiro-cli binary - GUI apps don't inherit user's shell PATH
+    // So we check common installation locations
+    fn find_kiro_cli() -> Option<PathBuf> {
+        let candidates: Vec<PathBuf> = vec![
+            // User's local bin (most common for kiro-cli)
+            dirs::home_dir().map(|h| h.join(".local/bin/kiro-cli")),
+            // Homebrew paths
+            Some(PathBuf::from("/opt/homebrew/bin/kiro-cli")),
+            Some(PathBuf::from("/usr/local/bin/kiro-cli")),
+            // System paths
+            Some(PathBuf::from("/usr/bin/kiro-cli")),
+        ].into_iter().flatten().collect();
+
+        for path in candidates {
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        
+        // Fallback: try PATH (works if launched from terminal)
+        if let Ok(output) = Command::new("which").arg("kiro-cli").output() {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path_str.is_empty() {
+                    return Some(PathBuf::from(path_str));
+                }
+            }
+        }
+        
+        None
+    }
+
+    let kiro_cli_path = match find_kiro_cli() {
+        Some(path) => path,
+        None => {
+            // CLI not installed
+            return Ok(vec![types::quota::KiroQuotaResult {
+                account_email: "Kiro Subscription".to_string(),
+                plan: "CLI Not Found".to_string(),
+                total_credits: 0.0,
+                used_credits: 0.0,
+                used_percent: 0.0,
+                fetched_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                error: Some("kiro-cli not found. Install it to enable quota tracking.".to_string()),
+            }]);
+        }
+    };
+
+    // Run kiro-cli chat --no-interactive "/usage"
+    let output = Command::new(&kiro_cli_path)
+        .args(&["chat", "--no-interactive", "/usage"])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            // kiro-cli writes output to stderr, not stdout
+            let output_text = String::from_utf8_lossy(&out.stderr);
+            // Strip ANSI escape sequences (colors, etc)
+            let re_ansi = Regex::new(r"\x1B\[[0-9;]*[mK]").unwrap();
+            let clean_text = re_ansi.replace_all(&output_text, "");
+
+            let mut result = types::quota::KiroQuotaResult {
+                account_email: "Kiro Account".to_string(),
+                plan: "Unknown".to_string(),
+                total_credits: 0.0,
+                used_credits: 0.0,
+                used_percent: 0.0,
+                fetched_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                error: None,
+            };
+
+            // Parse Plan: Look for KIRO FREE or KIRO PRO anywhere in the text
+            let re_plan = Regex::new(r"KIRO\s+(FREE|PRO|ENTERPRISE)").unwrap();
+            if let Some(cap) = re_plan.captures(&clean_text) {
+                result.plan = format!("KIRO {}", &cap[1]);
+            }
+
+            // Parse Credits: (12.50 of 50 covered in plan)
+            let re_credits = Regex::new(r"\((\d+\.?\d*)\s+of\s+(\d+)\s+covered").unwrap();
+            if let Some(cap) = re_credits.captures(&clean_text) {
+                let used: f64 = cap[1].parse().unwrap_or(0.0);
+                let total: f64 = cap[2].parse().unwrap_or(0.0);
+                result.used_credits = used;
+                result.total_credits = total;
+                if total > 0.0 {
+                    result.used_percent = (used / total) * 100.0;
+                }
+            }
+
+            // Fallback for bonus credits if needed
+            let re_bonus = Regex::new(r"Bonus credits:\s*(\d+\.?\d*)/(\d+)").unwrap();
+            if let Some(cap) = re_bonus.captures(&clean_text) {
+                 let bonus_used: f64 = cap[1].parse().unwrap_or(0.0);
+                 let bonus_total: f64 = cap[2].parse().unwrap_or(0.0);
+                 // If we have bonus credits, we can add them or show them. 
+                 // For now let's just stick to the main plan pool for simplicity, 
+                 // but we'll include them in the used/total if the main ones weren't found.
+                 if result.total_credits == 0.0 {
+                     result.used_credits = bonus_used;
+                     result.total_credits = bonus_total;
+                     if bonus_total > 0.0 {
+                         result.used_percent = (bonus_used / bonus_total) * 100.0;
+                     }
+                 }
+            }
+
+            Ok(vec![result])
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Ok(vec![types::quota::KiroQuotaResult {
+                account_email: "Kiro Subscription".to_string(),
+                plan: "Error".to_string(),
+                total_credits: 0.0,
+                used_credits: 0.0,
+                used_percent: 0.0,
+                fetched_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                error: Some(format!("kiro-cli failed: {}", stderr)),
+            }])
+        }
+        Err(e) => {
+            // Execution error (permission denied, etc.)
+            Ok(vec![types::quota::KiroQuotaResult {
+                account_email: "Kiro Subscription".to_string(),
+                plan: "Error".to_string(),
+                total_credits: 0.0,
+                used_credits: 0.0,
+                used_percent: 0.0,
+                fetched_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                error: Some(format!("Failed to run kiro-cli: {}", e)),
+            }])
+        }
+    }
+}
+
 // Fetch Claude/Anthropic quota for all authenticated accounts
 // Uses the Anthropic OAuth API: https://api.anthropic.com/api/oauth/usage
+
 #[tauri::command]
-async fn fetch_claude_quota() -> Result<Vec<types::ClaudeQuotaResult>, String> {
+async fn fetch_claude_quota() -> Result<Vec<types::quota::ClaudeQuotaResult>, String> {
     let home = dirs::home_dir().ok_or("Could not determine home directory")?;
     
     let mut results: Vec<types::ClaudeQuotaResult> = Vec::new();
@@ -4422,6 +4604,74 @@ async fn get_available_models(state: State<'_, AppState>) -> Result<Vec<Availabl
         .collect();
     
     Ok(models)
+}
+
+#[tauri::command]
+async fn test_provider_connection(
+    model_id: String,
+    state: State<'_, AppState>,
+) -> Result<ProviderTestResult, String> {
+    let (port, api_key) = {
+        let config = state.config.lock().unwrap();
+        (config.port, config.proxy_api_key.clone())
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let endpoint = format!("http://localhost:{}/v1/chat/completions", port);
+    
+    let payload = serde_json::json!({
+        "model": model_id,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Say 'OK'"
+            }
+        ],
+        "max_tokens": 5
+    });
+
+    let start = std::time::Instant::now();
+    let response = client.post(&endpoint)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&payload)
+        .send()
+        .await;
+    
+    let latency = start.elapsed().as_millis() as u64;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                Ok(ProviderTestResult {
+                    success: true,
+                    message: "Connection successful!".to_string(),
+                    latency_ms: Some(latency),
+                    models_found: None,
+                })
+            } else {
+                let error_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                Ok(ProviderTestResult {
+                    success: false,
+                    message: format!("Error {}: {}", status, error_text),
+                    latency_ms: Some(latency),
+                    models_found: None,
+                })
+            }
+        }
+        Err(e) => {
+            Ok(ProviderTestResult {
+                success: false,
+                message: format!("Connection failed: {}", e),
+                latency_ms: Some(latency),
+                models_found: None,
+            })
+        }
+    }
 }
 
 #[tauri::command]
@@ -5024,35 +5274,35 @@ fn get_model_limits(model_id: &str, owned_by: &str, source: &str) -> (u64, u64) 
         // Claude 4.5 models: 200K context, 64K output
         // Claude 3.5 haiku: 200K context, 8K output
         if model_lower.contains("3-5-haiku") || model_lower.contains("3-haiku") {
-            return (168000, 8192);
+            return (200000, 8192);
         } else {
             // sonnet-4-5, opus-4-5, haiku-4-5, and other Claude 4.x models
-            return (168000, 64000);
+            return (200000, 64000);
         }
     }
     
     // Gemini models
     if model_lower.contains("gemini") {
         // Gemini 2.5 models: 1M context, 65K output
-        return (880964, 65536);
+        return (1000000, 65536);
     }
     
     // GPT/OpenAI models
     if model_lower.contains("gpt") || model_lower.starts_with("o1") || model_lower.starts_with("o3") {
         // o1, o3 reasoning models: 200K context, 100K output
         if model_lower.contains("o3") || model_lower.contains("o1") {
-            return (168000, 100000);
+            return (200000, 100000);
         } else if model_lower.contains("gpt-5") || model_lower.contains("gpt5") {
             // GPT-5 via Copilot: 128K context (Copilot limit)
             // GPT-5 via ChatGPT/ProxyPal: 400K context
             if source == "copilot" {
-                return (107520, 32768);
+                return (128000, 32768);
             } else {
-                return (336000, 32768);
+                return (400000, 32768);
             }
         } else {
             // gpt-4o, gpt-4o-mini, gpt-4.1: 128K context, 16K output
-            return (107520, 16384);
+            return (128000, 16384);
         }
     }
     
@@ -5060,10 +5310,10 @@ fn get_model_limits(model_id: &str, owned_by: &str, source: &str) -> (u64, u64) 
     if model_lower.contains("qwen") {
         // Qwen3 Coder Plus: 1M context
         if model_lower.contains("coder") {
-            return (880964, 65536);
+            return (1000000, 65536);
         } else {
             // Qwen3 models: 262K context (max), 65K output
-            return (220201, 65536);
+            return (262144, 65536);
         }
     }
     
@@ -5071,20 +5321,20 @@ fn get_model_limits(model_id: &str, owned_by: &str, source: &str) -> (u64, u64) 
     if model_lower.contains("deepseek") {
         // deepseek-reasoner: 128K output, deepseek-chat: 8K output
         if model_lower.contains("reasoner") || model_lower.contains("r1") {
-            return (107520, 128000);
+            return (128000, 128000);
         } else {
-            return (107520, 8192);
+            return (128000, 8192);
         }
     }
     
     // Fallback to owned_by for any remaining models
     match owned_by {
-        "anthropic" => (168000, 64000),
-        "google" => (880964, 65536),
-        "openai" => (107520, 16384),
-        "qwen" => (220201, 65536),
-        "deepseek" => (107520, 8192),
-        _ => (107520, 16384) // safe defaults
+        "anthropic" => (200000, 64000),
+        "google" => (1000000, 65536),
+        "openai" => (128000, 16384),
+        "qwen" => (262144, 65536),
+        "deepseek" => (128000, 8192),
+        _ => (128000, 16384) // safe defaults
     }
 }
 
@@ -5598,10 +5848,13 @@ export AMP_API_KEY="proxypal-local"
                 let is_gpt5_model = m.id.starts_with("gpt-5");
                 // Check if this is a Gemini 3 model (native thinking support)
                 let is_gemini3_model = m.id.starts_with("gemini-3-") && !m.id.contains("image");
+                // Check if this is a Qwen3 or DeepSeek model with thinking support
+                let is_qwen3_thinking = m.id.contains("qwen3") && m.id.contains("thinking");
+                let is_deepseek_thinking = m.id.contains("deepseek") && m.id.contains("thinking");
                 // Use user's configured thinking budget
                 let thinking_budget: u64 = user_thinking_budget;
                 let min_thinking_output: u64 = thinking_budget + 8192;  // thinking + 8K buffer for response
-                let effective_output_limit = if is_thinking_model || is_gemini3_model { 
+                let effective_output_limit = if is_thinking_model || is_gemini3_model || is_qwen3_thinking || is_deepseek_thinking { 
                     std::cmp::max(output_limit, min_thinking_output) 
                 } else { 
                     output_limit 
@@ -5636,13 +5889,13 @@ export AMP_API_KEY="proxypal-local"
                     _ => "high"
                 };
                 
-                if is_thinking_model {
+                if is_thinking_model || is_qwen3_thinking || is_deepseek_thinking {
                     // Enable extended thinking
                     model_config["reasoning"] = serde_json::json!(true);
-                    // Check if this is a Claude thinking model (uses thinking.budgetTokens)
+                    // Check if this is a Claude/Qwen3/DeepSeek thinking model (uses thinking.budgetTokens)
                     // vs OpenAI o-series (uses reasoningEffort)
-                    let is_claude_thinking = m.id.contains("claude") && m.id.ends_with("-thinking");
-                    if is_claude_thinking {
+                    let is_budget_thinking = (m.id.contains("claude") || m.id.contains("qwen3") || m.id.contains("deepseek")) && m.id.contains("thinking");
+                    if is_budget_thinking {
                         // Add variants for gemini-claude-*-thinking models
                         let low_budget = 8192u64;
                         let max_budget = 32768u64;
@@ -6333,6 +6586,7 @@ async fn check_provider_health(state: State<'_, AppState>) -> Result<ProviderHea
             qwen: offline_status.clone(),
             iflow: offline_status.clone(),
             vertex: offline_status.clone(),
+            kiro: offline_status.clone(),
             antigravity: offline_status,
         });
     }
@@ -6391,6 +6645,7 @@ async fn check_provider_health(state: State<'_, AppState>) -> Result<ProviderHea
         qwen: make_status(auth_status.qwen > 0),
         iflow: make_status(auth_status.iflow > 0),
         vertex: make_status(auth_status.vertex > 0),
+        kiro: make_status(auth_status.kiro > 0),
         antigravity: make_status(auth_status.antigravity > 0),
     })
 }
@@ -6876,37 +7131,74 @@ async fn delete_auth_file(state: State<'_, AppState>, file_id: String) -> Result
 }
 
 // Toggle auth file enabled/disabled via management API (CLIProxyAPI v6.7.18+)
+// Fallback: manually rename file to .json.disabled if API returns 404
 #[tauri::command]
-async fn toggle_auth_file(state: State<'_, AppState>, file_name: String, disabled: bool) -> Result<(), String> {
-    let port = {
-        let config = state.config.lock().unwrap();
-        config.port
-    };
-    
-    // Use the new PATCH endpoint from CLIProxyAPI v6.7.18
-    // Endpoint: PATCH /v0/management/auth-files/status
-    // Body: { "name": "filename.json", "disabled": true/false }
-    let url = get_management_url(port, "auth-files/status");
-    
-    let client = build_management_client();
-    let response = client
-        .patch(&url)
-        .header("X-Management-Key", &get_management_key())
-        .json(&serde_json::json!({
-            "name": file_name,
-            "disabled": disabled
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to toggle auth file: {}", e))?;
-    
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("Failed to toggle auth file: {} - {}", status, error_text));
-    }
-    
-    Ok(())
+async fn toggle_auth_file(
+	state: State<'_, AppState>,
+	file_name: String,
+	disabled: bool,
+) -> Result<(), String> {
+	let port = {
+		let config = state.config.lock().unwrap();
+		config.port
+	};
+
+	// Use the new PATCH endpoint from CLIProxyAPI v6.7.18
+	// Endpoint: PATCH /v0/management/auth-files/status
+	// Body: { "name": "filename.json", "disabled": true/false }
+	let url = get_management_url(port, "auth-files/status");
+
+	let client = build_management_client();
+	let response_res = client
+		.patch(&url)
+		.header("X-Management-Key", &get_management_key())
+		.json(&serde_json::json!({
+			"name": file_name,
+			"disabled": disabled
+		}))
+		.send()
+		.await;
+
+	match response_res {
+		Ok(response) if response.status().is_success() => Ok(()),
+		Ok(response) if response.status().as_u16() == 404 => {
+			// API not found (old version), fallback to manual file renaming
+			let home_dir = dirs::home_dir().ok_or("Could not find home directory")?;
+			let auth_dir = home_dir.join(".cli-proxy-api");
+
+			let current_name = if !disabled {
+				format!("{}.disabled", file_name)
+			} else {
+				file_name.clone()
+			};
+
+			let new_name = if disabled {
+				format!("{}.disabled", file_name)
+			} else {
+				file_name.clone()
+			};
+
+			let current_path = auth_dir.join(&current_name);
+			let new_path = auth_dir.join(&new_name);
+
+			if current_path.exists() {
+				std::fs::rename(&current_path, &new_path)
+					.map_err(|e| format!("Manual toggle failed: {}", e))?;
+				Ok(())
+			} else {
+				Err(format!("Auth file not found: {:?}", current_path))
+			}
+		}
+		Ok(response) => {
+			let status = response.status();
+			let error_text = response.text().await.unwrap_or_default();
+			Err(format!(
+				"Failed to toggle auth file: {} - {}",
+				status, error_text
+			))
+		}
+		Err(e) => Err(format!("Failed to toggle auth file: {}", e)),
+	}
 }
 
 // Download auth file - returns path to temp file
@@ -7649,12 +7941,14 @@ pub fn run() {
             fetch_codex_quota,
             fetch_copilot_quota,
             fetch_claude_quota,
+            fetch_kiro_quota,
             import_vertex_credential,
             commands::config::get_config,
             commands::config::save_config,
             commands::config::get_config_yaml,
             commands::config::save_config_yaml,
             commands::config::reload_config,
+            commands::proxy::get_system_proxy,
             detect_ai_tools,
             configure_continue,
             get_tool_setup_info,
@@ -7673,7 +7967,7 @@ pub fn run() {
             import_usage_stats,
             get_available_models,
             test_openai_provider,
-            fetch_openai_compatible_models,
+            test_provider_connection,
             fetch_openai_compatible_models,
             // API Keys Management
             get_gemini_api_keys,
